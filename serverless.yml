@@ -1,0 +1,2142 @@
+plugins:
+  - serverless-apigateway-service-proxy
+  - serverless-dynamodb-local
+  - serverless-offline
+
+service: application-ep-cache
+frameworkVersion: '3'
+
+package:
+  artifact: .build/lambda.zip
+
+custom:
+  account: ${file(./config/${self:provider.stage}.json):account}
+  expiry: ${file(./config/${self:provider.stage}.json):object_expiry}
+  apiGatewayServiceProxies:
+    - dynamodb:
+        path: /data/{user_id}/{ep_status}
+        method: get
+        tableName: { Ref: ApplicationEpCacheTable }
+        hashKey:
+          pathParam: ep_status
+          attributeType: S
+        rangeKey:
+          pathParam: user_id
+          attributeType: S
+        action: GetItem
+        cors:
+          origin: '*'
+          headers:
+            - kalpam-track
+            - Content-Type
+            - Authorization
+        roleArn: !GetAtt ApigatewayToDynamodbRole.Arn
+        authorizationType: 'CUSTOM'
+        authorizerId: { Ref: 'ApplicationAuthorizer' }
+        condition: attribute_exists(ep_status) AND attribute_exists(user_id)
+    - dynamodb:
+        path: /data/{user_id}/{ep_status}
+        method: delete
+        tableName: { Ref: ApplicationEpCacheTable }
+        hashKey:
+          pathParam: ep_status
+          attributeType: S
+        rangeKey:
+          pathParam: user_id
+          attributeType: S
+        action: DeleteItem
+        cors:
+          origin: '*'
+          headers:
+            - kalpam-track
+            - Content-Type
+            - Authorization
+        roleArn: !GetAtt ApigatewayToDynamodbRole.Arn
+        authorizationType: 'CUSTOM'
+        authorizerId: { Ref: 'ApplicationAuthorizer' }
+        condition: attribute_exists(ep_status) AND attribute_exists(user_id)
+    - dynamodb:
+        path: /orgs/{user_id}/{org_id}
+        method: get
+        tableName: { Ref: OrgsTable }
+        hashKey:
+          pathParam: org_id
+          attributeType: S
+        action: GetItem
+        cors:
+          origin: '*'
+          headers:
+            - kalpam-track
+            - Content-Type
+            - Authorization
+        roleArn: !GetAtt ApigatewayToDynamodbRole.Arn
+        authorizationType: 'CUSTOM'
+        authorizerId: { Ref: 'ApplicationAuthorizer' }
+        condition: attribute_exists(user_id) AND attribute_exists(org_id)
+    - dynamodb:
+        path: /orgs/{user_id}/{org_id}
+        method: delete
+        tableName: { Ref: OrgsTable }
+        hashKey:
+          pathParam: org_id
+          attributeType: S
+        action: DeleteItem
+        cors:
+          origin: '*'
+          headers:
+            - kalpam-track
+            - Content-Type
+            - Authorization
+        roleArn: !GetAtt ApigatewayToDynamodbRole.Arn
+        authorizationType: 'CUSTOM'
+        authorizerId: { Ref: 'ApplicationAuthorizer' }
+        condition: attribute_exists(user_id) AND attribute_exists(org_id)
+    - s3:
+        path: /docs/{file}/{type}
+        method: get
+        action: GetObject
+        pathOverride: 'kalpam/{file}.{type}'
+        bucket:
+          Ref: AppBucket
+        cors:
+          origin: '*'
+          headers:
+            - kalpam-track
+            - Content-Type
+            - Authorization
+        requestParameters:
+          'integration.request.path.file': 'method.request.path.file'
+          'integration.request.path.type': 'method.request.path.type'
+          'integration.request.path.object': 'context.requestId'
+          'integration.request.header.cache-control': "'public, max-age=31536000, immutable'"
+        response:
+          template:
+            clientError: |-
+              {
+                #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                "message": "error in document get request"
+              }
+            serverError: |-
+              {
+                #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                "message": "error in processing document get request"
+              }
+        roleArn: !GetAtt ApigatewayToDynamodbRole.Arn
+        authorizationType: 'CUSTOM'
+        authorizerId: { Ref: 'ApplicationAuthorizer' }
+    - s3:
+        path: /docs/{file}/{type}
+        method: put
+        action: PutObject
+        pathOverride: 'kalpam/{file}.{type}'
+        bucket:
+          Ref: AppBucket
+        cors:
+          origin: '*'
+          headers:
+            - X-Amz-Date
+            - kalpam-track
+            - Content-Type
+            - Authorization
+            - X-Amz-User-Agent
+            - X-Amz-Security-Token
+        requestParameters:
+          'integration.request.path.file': 'method.request.path.file'
+          'integration.request.path.type': 'method.request.path.type'
+          'integration.request.path.object': 'context.requestId'
+          'integration.request.header.cache-control': "'public, max-age=31536000, immutable'"
+        response:
+          template:
+            success: |-
+              {
+                #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                "message": "the document uploaded"
+              }
+            clientError: |-
+              {
+                #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                "message": "error in document upload request"
+              }
+            serverError: |-
+              {
+                #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                "message": "error in processing document upload request"
+              }
+        roleArn: !GetAtt ApigatewayToDynamodbRole.Arn
+        authorizationType: 'NONE'
+    
+provider:
+  name: aws
+  timeout: 45
+  region: us-east-1
+  runtime: python3.9
+  endpointType: REGIONAL
+  logRetentionInDays: 60
+  versionFunctions: false
+  stage: ${opt:stage, 'dev'}
+  apiName: ${self:provider.stage}-${self:service}
+  stackName: ${self:provider.stage}-${self:service}
+  apiGateway:
+    metrics: true
+    minimumCompressionSize: 10000
+    binaryMediaTypes:
+      - 'image/*'
+      - 'application/pdf'
+      - 'application/octet-stream'
+    disableDefaultEndpoint: true
+  iam:
+    role: !GetAtt FunctionDefaultRole.Arn
+    deploymentRole: arn:aws:iam::${self:custom.account}:role/serverless-executions
+  deploymentBucket:
+    serverSideEncryption: aws:kms
+    name: serverless-deployments
+  stackTags:
+    Account: Kalpsnuti
+    Namespace: kalpam
+    Owner: GauravJ
+    Application: application-ep-cache
+    Environment: ${self:provider.stage}
+  tracing:
+    apiGateway: true
+    lambda: true
+  environment:
+    STAGE: ${self:provider.stage}
+    ORG_DTLS_TABLE: '${self:provider.stage}-org-details'
+    APPLICATION_BUCKET: '${self:provider.stage}-user-docs'
+    APP_EP_CACHE_TABLE: '${self:provider.stage}-user-details'
+    INPUT_QUEUE: '${self:provider.stage}-${self:service}-queue'
+    INPUT_DEAD_QUEUE: '${self:provider.stage}-${self:service}-dlq'
+    CACHE_TTL: '${file(./config/${self:provider.stage}.json):record_ttl}'
+    EMAIL_QUEUE: '${file(./config/${self:provider.stage}.json):email_queue}'
+
+########################################################################################################################
+# FUNCTIONS
+########################################################################################################################
+functions:
+  jwtAuthorizer:
+    name: ${self:provider.stage}-${self:service}-jwt
+    handler: handlers/authorizer.validate_jwt
+
+  eventsHandler:
+    name: ${self:provider.stage}-${self:service}-handler
+    handler: handlers/events.handler
+    events:
+      - stream:
+          type: dynamodb
+          batchSize: 1
+          arn: !GetAtt OrgsTable.StreamArn
+          filterPatterns:
+            - eventName: [ INSERT ]
+              dynamodb:
+                NewImage:
+                  org_status:
+                    S: [approved, rejected, pending, deleted]
+            - eventName: [ MODIFY ]
+              dynamodb:
+                NewImage:
+                  org_status:
+                    S: [approved, rejected, pending, deleted]
+            - eventName: [ REMOVE ]
+              dynamodb:
+                NewImage:
+                  org_status:
+                    S: [approved, rejected, pending, deleted]
+    timeout: 45
+    reservedConcurrency: 3
+
+  sqsHandler:
+    name: ${self:provider.stage}-${self:service}-sqs-handler
+    handler: handlers/sqs_events.handler
+    events:
+      - sqs:
+          arn: !GetAtt AppQueue.Arn
+          batchSize: 1
+    reservedConcurrency: 5
+  
+  httpPostHandler:
+    name: ${self:provider.stage}-${self:service}-http-handler
+    handler: handlers/http_events.handler
+    reservedConcurrency: 6
+    timeout: 25
+    environment:
+      LOG_LEVEL: ${file(./config/${self:provider.stage}.json):log_level}
+    events:
+      - http:
+          path: app/data
+          method: post
+          async: false
+          authorizer:
+            type: "CUSTOM"
+            authorizerId: { Ref: "ApplicationAuthorizer" }
+          cors:
+            origin: '*'
+            headers:
+              - kalpam-track
+              - Content-Type
+              - Authorization
+          request:
+            parameters:
+              paths:
+                user_id: true
+  
+  httpGetHandler:
+    name: ${self:provider.stage}-${self:service}-http-get-handler
+    handler: handlers/http_events.handler
+    role: !GetAtt ApigatewayToDynamodbRole.Arn
+    events:
+      - http:
+          path: app/data
+          method: get
+          authorizer:
+            type: token
+            name: jwtAuthorizer
+            resultTtlInSeconds: 0
+            identitySource: method.request.header.Authorization
+          cors:
+            headers:
+              - Authorization
+              - Content-Type
+              - X-Api-Key
+          request:
+            parameters:
+              querystrings:
+                status: true
+                email: false
+
+  httpDeleteHandler:
+    name: ${self:provider.stage}-${self:service}-http-delete-handler
+    handler: handlers/http_events.handler
+    role: !GetAtt ApigatewayToDynamodbRole.Arn
+    events:
+      - http:
+          path: app/data
+          method: delete
+          cors:
+            headers:
+              - Authorization
+              - Content-Type
+              - X-Api-Key
+          authorizer:
+            type: token
+            name: jwtAuthorizer
+            resultTtlInSeconds: 0
+            identitySource: method.request.header.Authorization
+          request:
+            parameters:
+              querystrings:
+                user_id: true
+########################################################################################################################
+  # AWS RESOURCES
+########################################################################################################################
+resources:
+  Description: 'The ${self:service} CloudFormation stack'
+  Resources:
+    ApiGatewayRestApi:
+      Type: 'AWS::ApiGateway::RestApi'
+      Properties:
+        Name: "${self:provider.stage}-${self:service}"
+        Description: "The ${self:service} Rest API on ${self:provider.stage}. environment"
+
+    ApiGatewayDomainName:
+      Type: 'AWS::ApiGateway::DomainName'
+      Properties:
+        DomainName: api.${self:provider.stage}.kalpsnuti.com
+        EndpointConfiguration:
+          Types:
+            - REGIONAL
+        RegionalCertificateArn: !ImportValue ${self:provider.stage}-network-dns::CertificateArn
+
+    ApiGatewayBasePathMapping:
+      Type: 'AWS::ApiGateway::BasePathMapping'
+      DependsOn:
+        - ApiGatewayDeployment${sls:instanceId}
+      Properties:
+        BasePath: v1
+        Stage: ${self:provider.stage}
+        RestApiId: !Ref ApiGatewayRestApi
+        DomainName: !Ref ApiGatewayDomainName
+
+    ApiGatewayRecordSet:
+      Type: 'AWS::Route53::RecordSet'
+      Properties:
+        AliasTarget:
+          DNSName: !GetAtt ApiGatewayDomainName.RegionalDomainName
+          HostedZoneId: !GetAtt ApiGatewayDomainName.RegionalHostedZoneId
+        Type: A
+        Name: !Ref ApiGatewayDomainName
+        HostedZoneId: !ImportValue ${self:provider.stage}-network-dns::HostedZoneId
+    ########################################################################################################################
+    # Authorizer
+    ########################################################################################################################
+    ApplicationAuthorizer:
+      Type: 'AWS::ApiGateway::Authorizer'
+      Properties:
+        AuthorizerUri:
+          Fn::Join: [ '', [ 'arn:aws:apigateway:${self:provider.region}:lambda:path/2015-03-31/functions/', !GetAtt JwtAuthorizerLambdaFunction.Arn, '/invocations' ] ]
+        Type: REQUEST
+        AuthorizerResultTtlInSeconds: 0
+        RestApiId: !Ref ApiGatewayRestApi
+        Name: ${self:provider.stage}AuthJwt
+        IdentitySource: method.request.header.Authorization
+
+    ApplicationAuthPermission:
+      Type: 'AWS::Lambda::Permission'
+      Properties:
+        Action: lambda:InvokeFunction
+        Principal: apigateway.amazonaws.com
+        FunctionName: !GetAtt JwtAuthorizerLambdaFunction.Arn
+        SourceArn: !Sub 'arn:aws:execute-api:${self:provider.region}:${self:custom.account}:${ApiGatewayRestApi}/authorizers/${ApplicationAuthorizer}'
+   
+    ########################################################################################################################
+    # Models & Validators
+    ########################################################################################################################
+    AppBodyModel:
+      Type: 'AWS::ApiGateway::Model'
+      Properties:
+        Name: AppBodyModel
+        ContentType: 'application/json'
+        RestApiId: !Ref ApiGatewayRestApi
+        Description: The app request body model
+        Schema: ${file(models/requests/user_body.json)}
+
+    OrgBodyModel:
+      Type: 'AWS::ApiGateway::Model'
+      Properties:
+        Name: OrgBodyModel
+        ContentType: 'application/json'
+        RestApiId: !Ref ApiGatewayRestApi
+        Description: The org path parameters model
+        Schema: ${file(models/requests/org_body.json)}
+
+    BodyRequestValidator:
+      Type: 'AWS::ApiGateway::RequestValidator'
+      Properties:
+        ValidateRequestBody: true
+        Name: BodyRequestValidator
+        ValidateRequestParameters: false
+        RestApiId: !Ref ApiGatewayRestApi
+    ########################################################################################################################
+    # API Path Parts
+    ########################################################################################################################
+    ApiGatewayResourceAppDataUseridVar:
+      Type: 'AWS::ApiGateway::Resource'
+      Properties:
+        PathPart: '{user_id}'
+        RestApiId: !Ref ApiGatewayRestApi
+        ParentId: !Ref ApiGatewayResourceAppData
+
+    ApiGatewayResourceOrgs:
+      Type: 'AWS::ApiGateway::Resource'
+      Properties:
+        PathPart: 'orgs'
+        RestApiId: !Ref ApiGatewayRestApi
+        ParentId: !Ref ApiGatewayResourceAppData
+
+    ApiGatewayResourceMverificationsOrgsUseridVar:
+      Type: 'AWS::ApiGateway::Resource'
+      Properties:
+        PathPart: '{user_id}'
+        RestApiId: !Ref ApiGatewayRestApi
+        ParentId: !Ref ApiGatewayResourceOrgs
+    ########################################################################################################################
+    # AWS METHODS
+    ########################################################################################################################
+    ApiGatewayMethodAppDataUseridVarPut:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: PUT
+        RestApiId: !Ref ApiGatewayRestApi
+        RequestValidatorId: !Ref BodyRequestValidator
+        ResourceId: !Ref ApiGatewayResourceAppDataUseridVar
+        RequestModels:
+          'application/json': !Ref AppBodyModel
+        AuthorizationType: CUSTOM
+        AuthorizerId: { Ref: 'ApplicationAuthorizer' }
+        RequestParameters:
+          method.request.path.user_id: true
+          method.request.header.Authorization: true
+        Integration:
+          Type: AWS
+          IntegrationHttpMethod: POST
+          PassthroughBehavior: WHEN_NO_MATCH
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          CacheKeyParameters:
+            - 'method.request.header.Authorization'
+          RequestParameters:
+            integration.request.path.user_id: 'method.request.path.user_id'
+          RequestTemplates:
+            application/json: |
+              #set($req = $input.path('$'))
+              {
+                #set($email_id = $input.path('$.email_id'))
+                #set($org_id = $input.path('$.org_id'))
+                #set($org_status = $input.path('$.org_status'))
+                #set($last_name = $input.path('$.last_name'))
+                #set($first_name = $input.path('$.first_name'))
+                #set($transaction_id = $input.path('$.transaction_id'))
+                #set($common_attrs = $input.path('$.common_attrs'))
+                #set($date_now = $context.requestTimeEpoch / 1000)
+                #if( "$!date_now" == ""  )
+                  #set($date_now = $input.path('$.cached_dt'))
+                #end
+                #if( "$!date_now" == ""  )
+                  #set($date_now = '0')
+                #end
+
+                #set($updateExpression = "set")
+                #set($expressionAttributeValues = "")
+
+                #if( "$!email_id" != ""  )
+                  #set($updateExpression = "$updateExpression email_id = :email_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":email_id"": { ""S"": ""$email_id"" },")
+                #end
+                #if( "$!org_id" != ""  )
+                  #set($updateExpression = "$updateExpression org_id = :org_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":org_id"": { ""S"": ""$org_id"" },")
+                #end
+                #if( "$!org_status" != ""  )
+                  #set($updateExpression = "$updateExpression org_status = :org_status,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":org_status"": { ""S"": ""$org_status"" },")
+                #end
+                #if( "$!last_name" != "" )
+                  #set($updateExpression = "$updateExpression last_name = :last_name,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":last_name"": { ""S"": ""$last_name"" },")
+                #end
+                #if( "$!first_name" != ""  )
+                   #set($updateExpression = "$updateExpression first_name = :first_name,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":first_name"": { ""S"": ""$first_name"" },")
+                #end
+                #if( "$!common_attrs" != ""  )
+                  #set($updateExpression = "$updateExpression common_attrs = :common_attrs,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":common_attrs"": { ""S"": ""$common_attrs"" },")
+                #end
+                #if( "$!transaction_id" != ""  )
+                  #set($updateExpression = "$updateExpression transaction_id = :transaction_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":transaction_id"": { ""S"": ""$transaction_id"" },")
+                #end
+
+                #set($updateExpression = "$updateExpression update_date = :update_date")
+                #set($expressionAttributeValues = "$expressionAttributeValues "":update_date"": { ""S"": ""$date_now"" }")
+
+                "TableName": "${self:provider.environment.APP_EP_CACHE_TABLE}",
+                "Key": {
+                  "ep_status": {"S": "$input.path('$.ep_status')"},
+                  "user_id": {"S": "$input.params().path.user_id"}
+                },
+                "UpdateExpression": "$updateExpression",
+                "ExpressionAttributeValues": {
+                  $expressionAttributeValues
+                },
+                "ReturnValues": "UPDATED_NEW"
+              }
+          Uri: 'arn:aws:apigateway:${self:provider.region}:dynamodb:action/UpdateItem'
+          IntegrationResponses:
+            - StatusCode: '200'
+              SelectionPattern: '2\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: data updated"
+                  }
+            - StatusCode: '400'
+              SelectionPattern: '4\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: improper $context.httpMethod request"
+                  }
+            - StatusCode: '500'
+              SelectionPattern: '5\d{2}'
+              ResponseTemplates:
+                'application/json': |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: $context.httpMethod internal error" |
+                                "$context.error.validationErrorString $context.error.messageString"
+                  }
+        MethodResponses:
+          - StatusCode: '200'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '400'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '500'
+            ResponseModels:
+              'application/json': 'Empty'
+
+    ApiGatewayMethodAppDataUseridVarPost:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: POST
+        RestApiId: !Ref ApiGatewayRestApi
+        RequestValidatorId: !Ref BodyRequestValidator
+        ResourceId: !Ref ApiGatewayResourceAppDataUseridVar
+        RequestModels:
+          'application/json': !Ref AppBodyModel
+        AuthorizationType: CUSTOM
+        AuthorizerId: { Ref: 'ApplicationAuthorizer' }
+        RequestParameters:
+          method.request.path.user_id: true
+          method.request.header.Authorization: true
+        Integration:
+          Type: AWS
+          IntegrationHttpMethod: POST
+          PassthroughBehavior: WHEN_NO_MATCH
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          CacheKeyParameters:
+            - 'method.request.header.Authorization'
+          RequestParameters:
+            integration.request.path.user_id: 'method.request.path.user_id'
+          RequestTemplates:
+            application/json: |
+              #set($req = $input.path('$'))
+              #set($record_ttl = $context.requestTimeEpoch / 1000 + ${self:provider.environment.CACHE_TTL})
+              #set($date_now = $context.requestTimeEpoch / 1000)
+              #if( "$!date_now" == ""  )
+                #set($date_now = $input.path('$.cached_dt'))
+              #end
+              #if( "$!date_now" == ""  )
+                #set($date_now = '0')
+              #end
+              {
+                "TableName": "${self:provider.environment.APP_EP_CACHE_TABLE}",
+                "Item": {
+                  "ep_status": {"S": "$input.path('$.ep_status')"},
+                  "user_id": {"S": "$input.params().path.user_id"},
+                  "create_date" : { "N": "$date_now"},
+                  "update_date" : { "S": "$date_now"},
+                  "record_ttl" : { "N": "$record_ttl" },
+                  "email_id": {"S": "$input.path('$.email_id')"},
+                  "first_name": {"S": "$input.path('$.first_name')"},
+                  "last_name": {"S": "$input.path('$.last_name')"},
+                  "dob": {"S": "$input.path('$.dob')"},
+                  "doc_key":{"S": "$input.path('$.doc_key')"},
+                  "actioned_by": {"S": "$input.path('$.actioned_by')"}
+                },
+                "ConditionExpression": "attribute_not_exists(ep_status) AND attribute_not_exists(user_id)"
+              }
+          Uri: 'arn:aws:apigateway:${self:provider.region}:dynamodb:action/PutItem'
+          IntegrationResponses:
+            - StatusCode: '200'
+              SelectionPattern: '2\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: data created"
+                  }
+            - StatusCode: '400'
+              SelectionPattern: '4\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: improper $context.httpMethod request"
+                  }
+            - StatusCode: '500'
+              SelectionPattern: '5\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: $context.httpMethod internal error"
+                  }
+        MethodResponses:
+          - StatusCode: '200'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '400'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '500'
+            ResponseModels:
+              'application/json': 'Empty'
+
+    ApiGatewayMethodDataUseridVarPut:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: PUT
+        RestApiId: !Ref ApiGatewayRestApi
+        RequestValidatorId: !Ref BodyRequestValidator
+        ResourceId: !Ref ApiGatewayResourceDataUseridVar
+        RequestModels:
+          'application/json': !Ref AppBodyModel
+        AuthorizationType: CUSTOM
+        AuthorizerId: { Ref: 'ApplicationAuthorizer' }
+        RequestParameters:
+          method.request.path.user_id: true
+          method.request.header.Authorization: true
+        Integration:
+          Type: AWS
+          IntegrationHttpMethod: POST
+          PassthroughBehavior: WHEN_NO_MATCH
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          CacheKeyParameters:
+            - 'method.request.header.Authorization'
+          RequestParameters:
+            integration.request.path.user_id: 'method.request.path.user_id'
+          RequestTemplates:
+            application/json: |
+              #set($req = $input.path('$'))
+              {
+                #set($doc_key = $input.path('$.doc_key'))
+                #set($email_id = $input.path('$.email_id'))
+                #set($org_id = $input.path('$.org_id'))
+                #set($org_status = $input.path('$.org_status'))
+                #set($last_name = $input.path('$.last_name'))
+                #set($first_name = $input.path('$.first_name'))
+                #set($payload = $input.path('$.payload'))
+                #set($common_attrs = $input.path('$.common_attrs'))
+                #set($transaction_id = $input.path('$.transaction_id'))
+                #set($date_now = $context.requestTimeEpoch / 1000)
+                #if( "$!date_now" == ""  )
+                  #set($date_now = $input.path('$.cached_dt'))
+                #end
+                #if( "$!date_now" == ""  )
+                  #set($date_now = '0')
+                #end
+
+                #set($updateExpression = "set")
+                #set($expressionAttributeValues = "")
+
+                #if( "$!doc_key" != ""  )
+                  #set($updateExpression = "$updateExpression doc_key = :doc_key,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":doc_key"": { ""S"": ""$doc_key"" },")
+                #end
+                #if( "$!email_id" != ""  )
+                  #set($updateExpression = "$updateExpression email_id = :email_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":email_id"": { ""S"": ""$email_id"" },")
+                #end
+                #if( "$!org_id" != ""  )
+                  #set($updateExpression = "$updateExpression org_id = :org_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":org_id"": { ""S"": ""$org_id"" },")
+                #end
+                #if( "$!org_status" != ""  )
+                  #set($updateExpression = "$updateExpression org_status = :org_status,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":org_status"": { ""S"": ""$org_status"" },")
+                #end
+                #if( "$!last_name" != "" )
+                  #set($updateExpression = "$updateExpression last_name = :last_name,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":last_name"": { ""S"": ""$last_name"" },")
+                #end
+                #if( "$!first_name" != ""  )
+                   #set($updateExpression = "$updateExpression first_name = :first_name,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":first_name"": { ""S"": ""$first_name"" },")
+                #end
+                #if( "$!payload" != ""  )
+                  #set($updateExpression = "$updateExpression payload = :payload,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":payload"": { ""S"": ""$payload"" },")
+                #end
+                #if( "$!common_attrs" != ""  )
+                  #set($updateExpression = "$updateExpression common_attrs = :common_attrs,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":common_attrs"": { ""S"": ""$common_attrs"" },")
+                #end
+                #if( "$!transaction_id" != ""  )
+                  #set($updateExpression = "$updateExpression transaction_id = :transaction_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":transaction_id"": { ""S"": ""$transaction_id"" },")
+                #end
+
+                #set($updateExpression = "$updateExpression update_date = :update_date")
+                #set($expressionAttributeValues = "$expressionAttributeValues "":update_date"": { ""S"": ""$date_now"" }")
+
+                "TableName": "${self:provider.environment.APP_EP_CACHE_TABLE}",
+                "Key": {
+                  "ep_status": {"S": "$input.path('$.ep_status')"},
+                  "user_id": {"S": "$input.params().path.user_id"}
+                },
+                "UpdateExpression": "$updateExpression",
+                "ExpressionAttributeValues": {
+                  $expressionAttributeValues
+                },
+                "ReturnValues": "UPDATED_NEW"
+              }
+          Uri: 'arn:aws:apigateway:${self:provider.region}:dynamodb:action/UpdateItem'
+          IntegrationResponses:
+            - StatusCode: '200'
+              SelectionPattern: '2\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: data updated"
+                  }
+            - StatusCode: '400'
+              SelectionPattern: '4\d{2}'
+              ResponseTemplates:
+                'application/json': |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: improper $context.httpMethod request"
+                  }
+            - StatusCode: '500'
+              SelectionPattern: '5\d{2}'
+              ResponseTemplates:
+                'application/json': |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: $context.httpMethod internal error"
+                  }
+        MethodResponses:
+          - StatusCode: '200'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '400'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '500'
+            ResponseModels:
+              'application/json': 'Empty'
+
+    ApiGatewayMethodDataUseridVarPost:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: POST
+        RestApiId: !Ref ApiGatewayRestApi
+        RequestValidatorId: !Ref BodyRequestValidator
+        ResourceId: !Ref ApiGatewayResourceDataUseridVar
+        RequestModels:
+          'application/json': !Ref AppBodyModel
+        AuthorizationType: CUSTOM
+        AuthorizerId: { Ref: 'ApplicationAuthorizer' }
+        RequestParameters:
+          method.request.path.user_id: true
+          method.request.header.Authorization: true
+        Integration:
+          Type: AWS
+          IntegrationHttpMethod: POST
+          PassthroughBehavior: WHEN_NO_MATCH
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          CacheKeyParameters:
+            - 'method.request.header.Authorization'
+          RequestParameters:
+            integration.request.path.user_id: 'method.request.path.user_id'
+          RequestTemplates:
+            application/json: |
+              #set($req = $input.path('$'))
+              {
+                #set($doc_key = $input.path('$.doc_key'))
+                #set($email_id = $input.path('$.email_id'))
+                #set($org_id = $input.path('$.org_id'))
+                #set($last_name = $input.path('$.last_name'))
+                #set($org_status = $input.path('$.org_status'))
+                #set($first_name = $input.path('$.first_name'))
+                #set($common_attrs = $input.path('$.common_attrs'))
+                #set($payload = $input.path('$.payload'))
+
+                #set($currentTime = $context.requestTimeEpoch / 1000)
+                #if( "$!currentTime" == ""  )
+                  #set($currentTime = $input.path('$.cached_dt'))
+                #end
+                #if( "$!currentTime" == ""  )
+                  #set($currentTime = '0')
+                #end
+                #set($record_ttl = $context.requestTimeEpoch / 1000 + ${self:provider.environment.CACHE_TTL})
+
+                #if( "$!org_status" == ""  )
+                  #set($org_status = "verification-na")
+                #end
+
+                #if( "$!org_id" == ""  )
+                  #set($org_id = "-")
+                #end
+
+                #if( "$!email_id" == ""  )
+                  #set($email_id = "-")
+                #end
+
+                "TableName": "${self:provider.environment.APP_EP_CACHE_TABLE}",
+                "Item": {
+                  "ep_status": {"S": "$input.path('$.ep_status')"},
+                  #if( "$!doc_key" != ""  )
+                    "doc_key" : { "S": "$doc_key"},
+                  #end
+                  #if( "$!org_status" != ""  )
+                    "org_status" : { "S": "$org_status"},
+                  #end
+                  #if( "$!email_id" != ""  )
+                    "email_id" : { "S": "$email_id"},
+                  #end
+                  #if( "$!org_id" != ""  )
+                    "org_id" : { "S": "$org_id"},
+                  #end
+                  #if( "$!last_name" != "" )
+                    "last_name" : { "S": "$last_name"},
+                  #end
+                  #if( "$!first_name" != ""  )
+                    "first_name" : { "S": "$first_name"},
+                  #end
+                  #if( "$!payload" != ""  )
+                    "payload" : { "S": "$payload"},
+                  #end
+                  #if( "$!common_attrs" != ""  )
+                    "common_attrs" : { "S": "$common_attrs"},
+                  #end
+                  "user_id": {"S": "$input.params().path.user_id"},
+                  "create_date" : { "N": "$currentTime"},
+                  "update_date" : { "S": "$currentTime"},
+                  "record_ttl" : { "N": "$record_ttl" }
+                },
+                "ConditionExpression": "attribute_not_exists(ep_status) AND attribute_not_exists(user_id)"
+              }
+          Uri: 'arn:aws:apigateway:${self:provider.region}:dynamodb:action/PutItem'
+          IntegrationResponses:
+            - StatusCode: '200'
+              SelectionPattern: '2\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: data created"
+                  }
+            - StatusCode: '400'
+              SelectionPattern: '4\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: improper $context.httpMethod request"
+                  }
+            - StatusCode: '500'
+              SelectionPattern: '5\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: $context.httpMethod internal error"
+                  }
+        MethodResponses:
+          - StatusCode: '200'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '400'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '500'
+            ResponseModels:
+              'application/json': 'Empty'
+
+    ApiGatewayMethodDataUseridVarEpstatusVarDelete:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: DELETE
+        RestApiId: !Ref ApiGatewayRestApi
+        ResourceId: !Ref ApiGatewayResourceDataUseridVarEpstatusVar
+        Integration:
+          Type: AWS
+          IntegrationHttpMethod: POST
+          PassthroughBehavior: WHEN_NO_MATCH
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          IntegrationResponses:
+            - StatusCode: '200'
+              SelectionPattern: '2\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                      #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                      #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                      #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                      "message": "${context.stage}: data deleted"
+                  }
+            - StatusCode: '400'
+              SelectionPattern: '4\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: improper $context.httpMethod request"
+                  }
+            - StatusCode: '500'
+              SelectionPattern: '5\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: $context.httpMethod internal error"
+                  }
+        MethodResponses:
+          - StatusCode: '200'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '400'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '500'
+            ResponseModels:
+              'application/json': 'Empty'
+
+    ApiGatewayMethodDataUseridVarEpstatusVarGet:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: GET
+        RestApiId: !Ref ApiGatewayRestApi
+        ResourceId: !Ref ApiGatewayResourceDataUseridVarEpstatusVar
+        Integration:
+          PassthroughBehavior: WHEN_NO_MATCH
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          IntegrationResponses:
+            - StatusCode: '200'
+              SelectionPattern: '2\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  #set($item = $input.path('$.Item'))
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    #foreach($key in $item.keySet())
+                      #set ($value = $item.get($key))
+                      #foreach( $type in $value.keySet())
+                       "$key":"$value.get($type)"
+                      #if($foreach.hasNext()),#end
+                      #end
+                    #if($foreach.hasNext()),#end
+                    #end
+                  }
+            - StatusCode: '400'
+              SelectionPattern: '4\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: improper $context.httpMethod request"
+                  }
+            - StatusCode: '500'
+              SelectionPattern: '5\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: $context.httpMethod internal error"
+                  }
+        MethodResponses:
+          - StatusCode: '200'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '400'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '500'
+            ResponseModels:
+              'application/json': 'Empty'
+
+    ApiGatewayMethodOrgsUseridVarPost:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: POST
+        RestApiId: !Ref ApiGatewayRestApi
+        ResourceId: !Ref ApiGatewayResourceOrgsUseridVar
+        RequestValidatorId: !Ref BodyRequestValidator
+        RequestModels:
+          'application/json': !Ref OrgBodyModel
+        AuthorizationType: CUSTOM
+        AuthorizerId: { Ref: 'ApplicationAuthorizer' }
+        RequestParameters:
+          method.request.path.user_id: true
+          method.request.header.Authorization: true
+        Integration:
+          Type: AWS
+          IntegrationHttpMethod: POST
+          PassthroughBehavior: WHEN_NO_MATCH
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          CacheKeyParameters:
+            - 'method.request.header.Authorization'
+          RequestParameters:
+            integration.request.path.user_id: 'method.request.path.user_id'
+          RequestTemplates:
+            application/json: |
+              {
+                #set($org_name = $input.path('$.org_name'))
+                #set($org_status = $input.path('$.org_status'))
+                #set($org_url = $input.path('$.org_url'))
+                #set($user_id = $input.params().path.user_id)
+                #set($email_id = $input.path('$.email_id'))
+                #set($address_id = $input.path('$.address_id'))
+                #set($org_address = $input.path('$.org_address'))
+                #set($common_attrs = $input.path('$.common_attrs'))
+                #set($record_ttl = $context.requestTimeEpoch / 1000 + ${self:provider.environment.CACHE_TTL})
+                #set($date_now = $context.requestTimeEpoch / 1000)
+                #if( "$!date_now" == ""  )
+                  #set($date_now = $input.path('$.cached_dt'))
+                #end
+                #if( "$!date_now" == ""  )
+                  #set($date_now = '0')
+                #end
+
+                #if( "$!org_status" == ""  )
+                  #set($org_status = "verification-pending")
+                #end
+
+                #set($updateExpression = "set")
+                #set($expressionAttributeValues = "")
+
+                #if( "$!user_id" != ""  )
+                  #set($updateExpression = "$updateExpression user_id = :user_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":user_id"": { ""S"": ""$user_id"" },")
+                #end
+                #if( "$!org_status" != ""  )
+                  #set($updateExpression = "$updateExpression org_status = :org_status,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":org_status"": { ""S"": ""$org_status"" },")
+                #end
+                #if( "$!org_name" != ""  )
+                  #set($updateExpression = "$updateExpression org_name = :org_name,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":org_name"": { ""S"": ""$org_name"" },")
+                #end
+                #if( "$!email_id" != "" )
+                  #set($updateExpression = "$updateExpression email_id = :email_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":email_id"": { ""S"": ""$email_id"" },")
+                #end
+                #if( "$!address_id" != "" )
+                  #set($updateExpression = "$updateExpression address_id = :address_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":address_id"": { ""S"": ""$address_id"" },")
+                #end
+                #if( "$!org_address" != ""  )
+                   #set($updateExpression = "$updateExpression org_address = :org_address,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":org_address"": { ""S"": ""$org_address"" },")
+                #end
+                #if( "$!common_attrs" != ""  )
+                  #set($updateExpression = "$updateExpression common_attrs = :common_attrs,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":common_attrs"": { ""S"": ""$common_attrs"" },")
+                #end
+                #if( "$!org_url" != ""  )
+                  #set($updateExpression = "$updateExpression org_url = :org_url,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":org_url"": { ""S"": ""$org_url"" },")
+                #end
+                #set($updateExpression = "$updateExpression update_date = :update_date,")
+                #set($expressionAttributeValues = "$expressionAttributeValues "":update_date"": { ""S"": ""$date_now"" },")
+                #set($updateExpression = "$updateExpression create_date = :create_date,")
+                #set($expressionAttributeValues = "$expressionAttributeValues "":create_date"": { ""N"": ""$date_now"" },")
+                #set($updateExpression = "$updateExpression record_ttl = :record_ttl")
+                #set($expressionAttributeValues = "$expressionAttributeValues "":record_ttl"": { ""N"": ""$record_ttl"" }")
+
+                "TableName": "${self:provider.environment.ORG_DTLS_TABLE}",
+                "Key": {
+                  "org_id": {"S": "$context.requestId"}
+                },
+                "UpdateExpression": "$updateExpression",
+                "ExpressionAttributeValues": {
+                  $expressionAttributeValues
+                },
+                "ConditionExpression": "attribute_not_exists(org_id)",
+                "ReturnValues": "ALL_NEW"
+              }
+          Uri: 'arn:aws:apigateway:${self:provider.region}:dynamodb:action/UpdateItem'
+          IntegrationResponses:
+            - StatusCode: '200'
+              SelectionPattern: '2\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  #set($attributes = $input.path('$.Attributes'))
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: data for an organization created",
+                    #foreach($key in $attributes.keySet())
+                      #set ($value = $attributes.get($key))
+                      #foreach( $type in $value.keySet())
+                       "$key":"$value.get($type)"
+                      #if($foreach.hasNext()),#end
+                      #end
+                    #if($foreach.hasNext()),#end
+                    #end
+                  }
+            - StatusCode: '400'
+              SelectionPattern: '4\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: improper organization $context.httpMethod request"
+                  }
+            - StatusCode: '500'
+              SelectionPattern: '5\d{2}'
+              ResponseTemplates:
+                'application/json': |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: organization $context.httpMethod internal error"
+                  }
+        MethodResponses:
+          - StatusCode: '200'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '400'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '500'
+            ResponseModels:
+              'application/json': 'Empty'
+
+    ApiGatewayMethodOrgsUseridVarPut:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: PUT
+        RestApiId: !Ref ApiGatewayRestApi
+        RequestValidatorId: !Ref BodyRequestValidator
+        ResourceId: !Ref ApiGatewayResourceOrgsUseridVar
+        RequestModels:
+          'application/json': !Ref OrgBodyModel
+        AuthorizationType: CUSTOM
+        AuthorizerId: { Ref: 'ApplicationAuthorizer' }
+        RequestParameters:
+          method.request.path.user_id: true
+          method.request.header.Authorization: true
+        Integration:
+          Type: AWS
+          IntegrationHttpMethod: POST
+          PassthroughBehavior: WHEN_NO_MATCH
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          CacheKeyParameters:
+            - 'method.request.header.Authorization'
+          RequestParameters:
+            integration.request.path.user_id: 'method.request.path.user_id'
+          RequestTemplates:
+            application/json: |
+              #set($req = $input.path('$'))
+              {
+                #set($org_name = $input.path('$.org_name'))
+                #set($email_id = $input.path('$.email_id'))
+                #set($user_id = $input.params().path.user_id)
+                #set($org_status = $input.path('$.org_status'))
+                #set($address_id = $input.path('$.address_id'))
+                #set($org_address = $input.path('$.org_address'))
+                #set($common_attrs = $input.path('$.common_attrs'))
+                #set($transaction_id = $input.path('$.transaction_id'))
+
+                #set($date_now = $context.requestTimeEpoch / 1000)
+                #if( "$!date_now" == ""  )
+                  #set($date_now = $input.path('$.cached_dt'))
+                #end
+                #if( "$!date_now" == ""  )
+                  #set($date_now = '0')
+                #end
+
+                #set($updateExpression = "set")
+                #set($expressionAttributeValues = "")
+
+                #if( "$!user_id" != ""  )
+                  #set($updateExpression = "$updateExpression user_id = :user_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":user_id"": { ""S"": ""$user_id"" },")
+                #end
+                #if( "$!org_status" != ""  )
+                  #set($updateExpression = "$updateExpression org_status = :org_status,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":org_status"": { ""S"": ""$org_status"" },")
+                #end
+                #if( "$!org_name" != ""  )
+                  #set($updateExpression = "$updateExpression org_name = :org_name,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":org_name"": { ""S"": ""$org_name"" },")
+                #end
+                #if( "$!email_id" != "" )
+                  #set($updateExpression = "$updateExpression email_id = :email_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":email_id"": { ""S"": ""$email_id"" },")
+                #end
+                #if( "$!address_id" != "" )
+                  #set($updateExpression = "$updateExpression address_id = :address_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":address_id"": { ""S"": ""$address_id"" },")
+                #end
+                #if( "$!org_address" != ""  )
+                   #set($updateExpression = "$updateExpression org_address = :org_address,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":org_address"": { ""S"": ""$org_address"" },")
+                #end
+                #if( "$!common_attrs" != ""  )
+                  #set($updateExpression = "$updateExpression common_attrs = :common_attrs,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":common_attrs"": { ""S"": ""$common_attrs"" },")
+                #end
+                #if( "$!transaction_id" != ""  )
+                  #set($updateExpression = "$updateExpression transaction_id = :transaction_id,")
+                  #set($expressionAttributeValues = "$expressionAttributeValues "":transaction_id"": { ""S"": ""$transaction_id"" },")
+                #end
+                #set($updateExpression = "$updateExpression update_date = :update_date")
+                #set($expressionAttributeValues = "$expressionAttributeValues "":update_date"": { ""S"": ""$date_now"" }")
+
+                "TableName": "${self:provider.environment.ORG_DTLS_TABLE}",
+                "Key": {
+                  "org_id": {"S": "$input.path('$.org_id')"}
+                },
+                "UpdateExpression": "$updateExpression",
+                "ExpressionAttributeValues": {
+                  $expressionAttributeValues
+                },
+                "ConditionExpression": "attribute_exists(org_id)",
+                "ReturnValues": "ALL_NEW"
+              }
+          Uri: 'arn:aws:apigateway:${self:provider.region}:dynamodb:action/UpdateItem'
+          IntegrationResponses:
+            - StatusCode: '200'
+              SelectionPattern: '2\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  #set($attributes = $input.path('$.Attributes'))
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: data for an organization updated",
+                    #foreach($key in $attributes.keySet())
+                      #set ($value = $attributes.get($key))
+                      #foreach( $type in $value.keySet())
+                       "$key":"$value.get($type)"
+                      #if($foreach.hasNext()),#end
+                      #end
+                    #if($foreach.hasNext()),#end
+                    #end
+                  }
+            - StatusCode: '400'
+              SelectionPattern: '4\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: improper organization $context.httpMethod request"
+                  }
+            - StatusCode: '500'
+              SelectionPattern: '5\d{2}'
+              ResponseTemplates:
+                'application/json': |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: organization $context.httpMethod internal error"
+                  }
+        MethodResponses:
+          - StatusCode: '200'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '400'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '500'
+            ResponseModels:
+              'application/json': 'Empty'
+
+    ApiGatewayMethodOrgsUseridVarOrgidVarDelete:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: DELETE
+        RestApiId: !Ref ApiGatewayRestApi
+        ResourceId: !Ref ApiGatewayResourceOrgsUseridVarOrgidVar
+        Integration:
+          Type: AWS
+          IntegrationHttpMethod: POST
+          PassthroughBehavior: WHEN_NO_MATCH
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          IntegrationResponses:
+            - StatusCode: '200'
+              SelectionPattern: '2\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                      #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                      #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                      #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                      "message": "${context.stage}: orgnizations data deleted"
+                  }
+            - StatusCode: '400'
+              SelectionPattern: '4\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: improper orgnizations $context.httpMethod request"
+                  }
+            - StatusCode: '500'
+              SelectionPattern: '5\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: orgnizations $context.httpMethod internal error"
+                  }
+        MethodResponses:
+          - StatusCode: '200'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '400'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '500'
+            ResponseModels:
+              'application/json': 'Empty'
+
+    ApiGatewayMethodOrgsUseridVarOrgidVarGet:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: GET
+        RestApiId: !Ref ApiGatewayRestApi
+        ResourceId: !Ref ApiGatewayResourceOrgsUseridVarOrgidVar
+        Integration:
+          Type: AWS
+          IntegrationHttpMethod: POST
+          PassthroughBehavior: WHEN_NO_MATCH
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          IntegrationResponses:
+            - StatusCode: '200'
+              SelectionPattern: '2\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  #set($item = $input.path('$.Item'))
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    #foreach($key in $item.keySet())
+                      #set ($value = $item.get($key))
+                      #foreach( $type in $value.keySet())
+                       "$key":"$value.get($type)"
+                      #if($foreach.hasNext()),#end
+                      #end
+                    #if($foreach.hasNext()),#end
+                    #end
+                  }
+            - StatusCode: '400'
+              SelectionPattern: '4\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: improper organization $context.httpMethod request"
+                  }
+            - StatusCode: '500'
+              SelectionPattern: '5\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: organization $context.httpMethod internal error"
+                  }
+        MethodResponses:
+          - StatusCode: '200'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '400'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '500'
+            ResponseModels:
+              'application/json': 'Empty'
+
+    ApiGatewayMethodMverificationsOrgsUseridVarGet:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: GET
+        RestApiId: !Ref ApiGatewayRestApi
+        ResourceId: !Ref ApiGatewayResourceOrgsUseridVar
+        AuthorizationType: CUSTOM
+        AuthorizerId: { Ref: 'ApplicationAuthorizer' }
+        RequestParameters:
+          method.request.path.user_id: true
+          method.request.header.Authorization: true
+        Integration:
+          Type: AWS
+          IntegrationHttpMethod: POST
+          PassthroughBehavior: WHEN_NO_MATCH
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          RequestParameters:
+            integration.request.path.user_id: 'method.request.path.user_id'
+          RequestTemplates:
+            application/json: |
+              {
+                #set($user_id = $input.params().path.user_id)
+                #set($keyConditionExpression = "user_id = :user_id")
+                #set($expressionAttributeValues = """:user_id"":{ ""S"":""$user_id""}")
+                "TableName": "${self:provider.environment.ORG_DTLS_TABLE}",
+                "IndexName":"byUserId",
+                "KeyConditionExpression":"$keyConditionExpression",
+                "ExpressionAttributeValues":{
+                  $expressionAttributeValues
+              },
+              "limit":5,
+              "ScanIndexForward":false
+              }
+          Uri: 'arn:aws:apigateway:${self:provider.region}:dynamodb:action/Query'
+          IntegrationResponses:
+            - StatusCode: '200'
+              SelectionPattern: '2\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                  #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                  #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                  #set($items = $input.path('$.Items'))
+                  {
+                    #foreach($item in $items)
+                      "$velocityCount":{
+                        #foreach($key in $item.keySet())
+                          #set ($value = $item.get($key))
+                          #foreach( $type in $value.keySet())
+                            "$key":"$value.get($type)"
+                          #if($foreach.hasNext()),#end
+                          #end
+                        #if($foreach.hasNext()),#end
+                        #end
+                      }
+                    #if($foreach.hasNext()),#end
+                    #end
+                  }
+            - StatusCode: '400'
+              SelectionPattern: '4\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: getting improper cached organization by user_id $context.httpMethod request"
+                  }
+            - StatusCode: '500'
+              SelectionPattern: '5\d{2}'
+              ResponseTemplates:
+                application/json: |
+                  {
+                    #set($context.responseOverride.header.Access-Control-Allow-Origin = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Headers = '*')
+                    #set($context.responseOverride.header.Access-Control-Allow-Methods = '*')
+                    "message": "${context.stage}: getting cached organization by user_id  $context.httpMethod internal error"
+                  }
+        MethodResponses:
+          - StatusCode: '200'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '400'
+            ResponseModels:
+              'application/json': 'Empty'
+          - StatusCode: '500'
+            ResponseModels:
+              'application/json': 'Empty'
+    ########################################################################################################################
+    # OPTIONS METHODS
+    ########################################################################################################################
+    ApiGatewayMethodAppDataUseridVarOptions:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: OPTIONS
+        RestApiId: !Ref ApiGatewayRestApi
+        ResourceId: !Ref ApiGatewayResourceAppDataUseridVar
+        AuthorizationType: NONE
+        MethodResponses:
+          - StatusCode: 200
+            ResponseModels:
+              application/json: 'Empty'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: true
+              method.response.header.Access-Control-Allow-Headers: true
+              method.response.header.Access-Control-Allow-Methods: true
+              method.response.header.Access-Control-Expose-Headers: true
+        Integration:
+          Type: MOCK
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          IntegrationResponses:
+            - StatusCode: 200
+              ResponseParameters:
+                method.response.header.Access-Control-Allow-Origin: "'*'"
+                method.response.header.Access-Control-Allow-Headers: "'*'"
+                method.response.header.Access-Control-Allow-Methods: "'*'"
+                method.response.header.Access-Control-Expose-Headers: "'*'"
+              ResponseTemplates:
+                application/json: ''
+          PassthroughBehavior: WHEN_NO_MATCH
+          RequestTemplates:
+            application/json: '{"statusCode": 200}'
+
+    ApiGatewayMethodDocsFileVarTypeVarOptions:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: OPTIONS
+        RestApiId: !Ref ApiGatewayRestApi
+        ResourceId: !Ref ApiGatewayResourceDocsFileVarTypeVar
+        AuthorizationType: NONE
+        MethodResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: true
+              method.response.header.Access-Control-Allow-Methods: true
+              method.response.header.Access-Control-Allow-Headers: true
+              method.response.header.Access-Control-Expose-Headers: true
+        Integration:
+          Type: MOCK
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          IntegrationResponses:
+            - StatusCode: 200
+              ResponseParameters:
+                method.response.header.Access-Control-Allow-Origin: "'*'"
+                method.response.header.Access-Control-Allow-Headers: "'*'"
+                method.response.header.Access-Control-Allow-Methods: "'*'"
+                method.response.header.Access-Control-Expose-Headers: "'*'"
+          PassthroughBehavior: WHEN_NO_MATCH
+          RequestTemplates:
+            application/json: '{"statusCode": 200}'
+
+    ApiGatewayMethodOrgsUseridVarOptions:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: OPTIONS
+        RestApiId: !Ref ApiGatewayRestApi
+        ResourceId: !Ref ApiGatewayResourceOrgsUseridVar
+        AuthorizationType: NONE
+        MethodResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: true
+              method.response.header.Access-Control-Allow-Methods: true
+              method.response.header.Access-Control-Allow-Headers: true
+              method.response.header.Access-Control-Expose-Headers: true
+        Integration:
+          Type: MOCK
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          IntegrationResponses:
+            - StatusCode: 200
+              ResponseParameters:
+                method.response.header.Access-Control-Allow-Origin: "'*'"
+                method.response.header.Access-Control-Allow-Headers: "'*'"
+                method.response.header.Access-Control-Allow-Methods: "'*'"
+                method.response.header.Access-Control-Expose-Headers: "'*'"
+          PassthroughBehavior: WHEN_NO_MATCH
+          RequestTemplates:
+            application/json: '{"statusCode": 200}'
+
+    ApiGatewayMethodDataUseridVarOptions:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: OPTIONS
+        RestApiId: !Ref ApiGatewayRestApi
+        ResourceId: !Ref ApiGatewayResourceDataUseridVar
+        AuthorizationType: NONE
+        MethodResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: true
+              method.response.header.Access-Control-Allow-Methods: true
+              method.response.header.Access-Control-Allow-Headers: true
+              method.response.header.Access-Control-Expose-Headers: true
+        Integration:
+          Type: MOCK
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          IntegrationResponses:
+            - StatusCode: 200
+              ResponseParameters:
+                method.response.header.Access-Control-Allow-Origin: "'*'"
+                method.response.header.Access-Control-Allow-Headers: "'*'"
+                method.response.header.Access-Control-Allow-Methods: "'*'"
+                method.response.header.Access-Control-Expose-Headers: "'*'"
+          PassthroughBehavior: WHEN_NO_MATCH
+          RequestTemplates:
+            application/json: '{"statusCode": 200}'
+
+    ApiGatewayMethodDocsFileVarTypeVarOptions:
+      Type: 'AWS::ApiGateway::Method'
+      Properties:
+        HttpMethod: OPTIONS
+        RestApiId: !Ref ApiGatewayRestApi
+        ResourceId: !Ref ApiGatewayResourceDocsFileVarTypeVar
+        AuthorizationType: NONE
+        MethodResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: true
+              method.response.header.Access-Control-Allow-Methods: true
+              method.response.header.Access-Control-Allow-Headers: true
+              method.response.header.Access-Control-Expose-Headers: true
+        Integration:
+          Type: MOCK
+          Credentials: !GetAtt ApigatewayToDynamodbRole.Arn
+          IntegrationResponses:
+            - StatusCode: 200
+              ResponseParameters:
+                method.response.header.Access-Control-Allow-Origin: "'*'"
+                method.response.header.Access-Control-Allow-Headers: "'*'"
+                method.response.header.Access-Control-Allow-Methods: "'*'"
+                method.response.header.Access-Control-Expose-Headers: "'*'"
+          PassthroughBehavior: WHEN_NO_MATCH
+          RequestTemplates:
+            application/json: '{"statusCode": 200}'
+    ########################################################################################################################
+    # AWS RESOURCES & GROUPS
+    ########################################################################################################################
+    FunctionSecurityGroup:
+      Type: 'AWS::EC2::SecurityGroup'
+      Properties:
+        GroupDescription: 'application-ep-cache security group in ${self:provider.stage}'
+        VpcId: !ImportValue ${self:provider.stage}-network-vpc::VpcId
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Application
+            Value: ${self:service}
+          - Key: Namespace
+            Value: kalpam
+          - Key: Owner
+            Value: GauravJ
+    ####################################################################################################################
+    # IAM ROLES
+    ####################################################################################################################
+    FunctionDefaultRole:
+      Type: 'AWS::IAM::Role'
+      Properties:
+        PermissionsBoundary: arn:aws:iam::${self:custom.account}:policy/LandingZone/RoleBoundary
+        AssumeRolePolicyDocument:
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - s3.amazonaws.com
+                  - lambda.amazonaws.com
+                  - dynamodb.amazonaws.com
+                  - apigateway.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+          - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+          - arn:aws:iam::aws:policy/AmazonSSMFullAccess
+          - !Ref FunctionStandardPolicy
+          - !Ref CustomDynamodbPolicy
+          - !Ref CustomS3BucketPolicy
+
+    FunctionStandardPolicy:
+      Type: 'AWS::IAM::ManagedPolicy'
+      Properties:
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Sid: AllowExecuteApiGateway
+              Effect: Allow
+              Action:
+                - execute-api:Invoke
+              Resource: 'arn:aws:execute-api:*:*:*'
+            - Sid: AllowInputQueueRead
+              Effect: Allow
+              Action:
+                - sqs:GetQueueUrl
+                - sqs:SendMessage
+                - sqs:DeleteMessage
+                - sqs:ReceiveMessage
+                - sqs:GetQueueAttributes
+              Resource:
+                - 'arn:aws:sqs:${self:provider.region}:${self:custom.account}:${self:provider.environment.INPUT_QUEUE}'
+                - 'arn:aws:sqs:${self:provider.region}:${self:custom.account}:${self:provider.environment.INPUT_DEAD_QUEUE}'
+                - '${self:provider.environment.EMAIL_QUEUE}'
+            - Sid: AllowSSMParamReadOnly
+              Effect: Allow
+              Action:
+                - ssm:Get*
+              Resource:
+                - "*"
+
+    ApigatewayToDynamodbRole:
+      Type: 'AWS::IAM::Role'
+      Properties:
+        PermissionsBoundary: arn:aws:iam::${self:custom.account}:policy/LandingZone/RoleBoundary
+        AssumeRolePolicyDocument:
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - s3.amazonaws.com
+                  - lambda.amazonaws.com
+                  - dynamodb.amazonaws.com
+                  - apigateway.amazonaws.com
+              Action: sts:AssumeRole
+        ManagedPolicyArns:
+          - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+          - arn:aws:iam::aws:policy/AWSXRayDaemonWriteAccess
+          - arn:aws:iam::aws:policy/AmazonSSMFullAccess
+          - !Ref FunctionStandardPolicy
+          - !Ref CustomDynamodbPolicy
+          - !Ref CustomS3BucketPolicy
+
+    CustomS3BucketPolicy:
+      Type: 'AWS::IAM::ManagedPolicy'
+      Properties:
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Sid: S3BucketAccess
+              Effect: Allow
+              Action:
+                - s3:DeleteObjectVersion
+                - s3:GetBucketLocation
+                - s3:GetObjectVersion
+                - s3:PutObjectAcl
+                - s3:GetBucketAcl
+                - s3:DeleteObject
+                - s3:ListBucket
+                - s3:GetObject
+                - s3:PutObject
+                - s3:List*
+                - s3:Get*
+                - logs:CreateLogStream
+                - logs:CreateLogGroup
+                - logs:PutLogEvents
+              Resource:
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}'
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*'
+
+    CustomDynamodbPolicy:
+      Type: 'AWS::IAM::ManagedPolicy'
+      Properties:
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Sid: DynamoDBTableAccess
+              Effect: Allow
+              Action:
+                - dynamodb:ConditionCheckItem
+                - dynamodb:GetShardIterator
+                - dynamodb:DescribeStream
+                - dynamodb:BatchWriteItem
+                - dynamodb:DescribeLimits
+                - dynamodb:DescribeTable
+                - dynamodb:BatchGetItem
+                - dynamodb:ListStreams
+                - dynamodb:GetRecords
+                - dynamodb:ListShards
+                - dynamodb:DeleteItem
+                - dynamodb:UpdateItem
+                - dynamodb:GetRecords
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:Query
+                - dynamodb:Scan
+                - s3:List*
+                - s3:Get*
+                - logs:CreateLogStream
+                - logs:CreateLogGroup
+                - logs:PutLogEvents
+              Resource:
+                - 'arn:aws:dynamodb:*:*:table/${self:provider.environment.APP_EP_CACHE_TABLE}'
+                - "arn:aws:dynamodb:*:*:table/${self:provider.environment.APP_EP_CACHE_TABLE}/index/*"
+                - 'arn:aws:dynamodb:*:*:table/${self:provider.environment.APP_EP_CACHE_TABLE}/stream/*'
+                - 'arn:aws:dynamodb:*:*:table/${self:provider.environment.ORG_DTLS_TABLE}'
+                - "arn:aws:dynamodb:*:*:table/${self:provider.environment.ORG_DTLS_TABLE}/index/*"
+                - 'arn:aws:dynamodb:*:*:table/${self:provider.environment.ORG_DTLS_TABLE}/stream/*'
+
+    ####################################################################################################################
+    # Tables & Buckets etc.
+    ####################################################################################################################
+    ApplicationEpCacheTable:
+      Type: 'AWS::DynamoDB::Table'
+      Properties:
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        TableName: ${self:provider.environment.APP_EP_CACHE_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: ep_status
+            AttributeType: S
+          - AttributeName: user_id
+            AttributeType: S
+          - AttributeName: email_id
+            AttributeType: S
+          - AttributeName: org_id
+            AttributeType: S
+          - AttributeName: create_date
+            AttributeType: N
+        KeySchema:
+          - AttributeName: ep_status
+            KeyType: HASH
+          - AttributeName: user_id
+            KeyType: RANGE
+        LocalSecondaryIndexes:
+          - IndexName: byCreateDate
+            KeySchema:
+              - AttributeName: ep_status
+                KeyType: HASH
+              - AttributeName: create_date
+                KeyType: RANGE
+            Projection:
+              NonKeyAttributes:
+                - org_id
+                - doc_key
+                - email_id
+                - last_name
+                - org_status
+                - first_name
+                - create_date
+                - update_date
+                - common_attrs
+              ProjectionType: INCLUDE
+          - IndexName: byEmailId
+            KeySchema:
+              - AttributeName: ep_status
+                KeyType: HASH
+              - AttributeName: email_id
+                KeyType: RANGE
+            Projection:
+              NonKeyAttributes:
+                - org_id
+                - doc_key
+                - email_id
+                - last_name
+                - org_status
+                - first_name
+                - create_date
+                - update_date
+                - common_attrs
+              ProjectionType: INCLUDE
+          - IndexName: byOrgId
+            KeySchema:
+              - AttributeName: ep_status
+                KeyType: HASH
+              - AttributeName: org_id
+                KeyType: RANGE
+            Projection:
+              NonKeyAttributes:
+                - org_id
+                - doc_key
+                - email_id
+                - last_name
+                - org_status
+                - first_name
+                - create_date
+                - update_date
+                - common_attrs
+              ProjectionType: INCLUDE
+        SSESpecification:
+          SSEEnabled: false
+        StreamSpecification:
+          StreamViewType: NEW_IMAGE
+        TimeToLiveSpecification:
+          AttributeName: record_ttl
+          Enabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Application
+            Value: ${self:service}
+          - Key: Namespace
+            Value: kalpam
+          - Key: Owner
+            Value: GauravJ
+
+    OrgsTable:
+      Type: 'AWS::DynamoDB::Table'
+      Properties:
+        PointInTimeRecoverySpecification:
+          PointInTimeRecoveryEnabled: true
+        TableName: ${self:provider.environment.ORG_DTLS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: org_id
+            AttributeType: S
+          - AttributeName: org_status
+            AttributeType: S
+          - AttributeName: org_name
+            AttributeType: S
+          - AttributeName: address_id
+            AttributeType: S
+          - AttributeName: create_date
+            AttributeType: N
+          - AttributeName: user_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: org_id
+            KeyType: HASH
+        GlobalSecondaryIndexes:
+          - IndexName: byUserId
+            KeySchema:
+              - AttributeName: user_id
+                KeyType: HASH
+              - AttributeName: create_date
+                KeyType: RANGE
+            Projection:
+              NonKeyAttributes:
+                - org_id
+                - user_id
+                - org_name
+                - email_id
+                - org_status
+                - address_id
+                - update_date
+                - org_address
+                - common_attrs
+              ProjectionType: INCLUDE
+          - IndexName: byOrgStatus
+            KeySchema:
+              - AttributeName: org_status
+                KeyType: HASH
+              - AttributeName: create_date
+                KeyType: RANGE
+            Projection:
+              NonKeyAttributes:
+                - user_id
+                - org_id
+                - org_name
+                - email_id
+                - address_id
+                - update_date
+                - org_address
+                - common_attrs
+              ProjectionType: INCLUDE
+          - IndexName: byOrgName
+            KeySchema:
+              - AttributeName: org_name
+                KeyType: HASH
+              - AttributeName: address_id
+                KeyType: RANGE
+            Projection:
+              NonKeyAttributes:
+                - org_id
+                - user_id
+                - email_id
+                - org_status
+                - create_date
+                - update_date
+                - org_address
+                - common_attrs
+              ProjectionType: INCLUDE
+        SSESpecification:
+          SSEEnabled: false
+        StreamSpecification:
+          StreamViewType: NEW_IMAGE
+        TimeToLiveSpecification:
+          AttributeName: record_ttl
+          Enabled: true
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Application
+            Value: ${self:service}
+          - Key: Namespace
+            Value: kalpam
+          - Key: Owner
+            Value: GauravJ
+
+    AppBucket:
+      Type: 'AWS::S3::Bucket'
+      Properties:
+        BucketName: ${self:provider.environment.APPLICATION_BUCKET}
+        AccessControl: Private
+        LifecycleConfiguration:
+          Rules:
+            - Id: DocExpiryIn30Days
+              Status: Enabled
+              ExpirationInDays: ${self:custom.expiry}
+              NoncurrentVersionExpirationInDays: ${self:custom.expiry}
+
+    applicationBucketPolicy:
+      Type: 'AWS::S3::BucketPolicy'
+      Properties:
+        Bucket: !Ref AppBucket
+        PolicyDocument:
+          Statement:
+            - Sid: BucketPolDenyType
+              Effect: Deny
+              Action: 's3:PutObject'
+              Principal: '*'
+              NotResource:
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*.pdf'
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*.jpg'
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*.gif'
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*.png'
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*.svg'
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*.bmp'
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*.tif'
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*.raw'
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*.tiff'
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*.webp'
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*.jpeg'
+            - Sid: BucketPolDenyAll
+              Effect: Deny
+              Action:
+                - 's3:*'
+              Resource:
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}'
+                - 'arn:aws:s3:::${self:provider.environment.APPLICATION_BUCKET}/*'
+              Principal: '*'
+              Condition:
+                Bool:
+                  aws:SecureTransport: 'false'
+
+    AppQueue:
+      Type: 'AWS::SQS::Queue'
+      Properties:
+        QueueName: ${self:provider.environment.INPUT_QUEUE}
+        VisibilityTimeout: 300
+        MessageRetentionPeriod: 3600
+        RedrivePolicy:
+          deadLetterTargetArn: !GetAtt AppDLQ.Arn
+          maxReceiveCount: 5
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Application
+            Value: ${self:service}
+          - Key: Namespace
+            Value: kalpam
+          - Key: Owner
+            Value: GauravJ
+
+    AppDLQ:
+      Type: 'AWS::SQS::Queue'
+      Properties:
+        QueueName: ${self:provider.environment.INPUT_DEAD_QUEUE}
+        MessageRetentionPeriod: 1209600 # 14 days in seconds
+        Tags:
+          - Key: Environment
+            Value: ${self:provider.stage}
+          - Key: Application
+            Value: ${self:service}
+          - Key: Namespace
+            Value: kalpam
+          - Key: Owner
+            Value: GauravJ
+

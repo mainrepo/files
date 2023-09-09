@@ -1,0 +1,61 @@
+kind: StatefulSet
+apiVersion: apps/v1
+metadata:
+  name: kafka-pods
+  labels:
+    app: broker
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: broker
+  template:
+    metadata:
+      labels:
+        app: broker
+        kafka.network/default: "true"
+    spec:
+      containers:
+        - name: broker
+          image: confluentinc/cp-kafka:7.4.0-2-ubi8
+          ports:
+            - containerPort: 2185
+          env:
+            - name: KAFKA_ZOOKEEPER_CONNECT
+              value: 'zookeeper:2181'
+            - name: KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "1"
+            - name: KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "2"
+            - name: KAFKA_LISTENER_SECURITY_PROTOCOL_MAP
+              value: EXTERNAL:PLAINTEXT,INTERNAL:PLAINTEXT
+            - name: KAFKA_LISTENERS
+              value: INTERNAL://broker:2185, EXTERNAL://broker.kafka.svc.cluster.local:9092
+            - name: KAFKA_INTER_BROKER_LISTENER_NAME
+              value: INTERNAL
+            - name: KAFKA_ADVERTISED_LISTENERS
+              value: INTERNAL://broker:2185, EXTERNAL://broker.kafka.svc.cluster.local:9092
+          resources:
+            limits:
+              cpu: "1"
+              memory: 2Gi
+            requests:
+              cpu: "0.5"
+              memory: 1Gi  
+      restartPolicy: Always
+---
+kind: Service
+apiVersion: v1
+metadata:
+  labels:
+    app: broker
+  name: broker
+spec:
+  ports:
+    - name: "9092"
+      port: 9092
+      targetPort: 2185
+  selector:
+    app: broker

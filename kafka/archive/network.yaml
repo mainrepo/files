@@ -1,0 +1,13 @@
+kind: NetworkPolicy
+apiVersion: networking.k8s.io/v1
+metadata:
+  name: kafka-default
+spec:
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              kafka.network/default: "true"
+  podSelector:
+    matchLabels:
+      kafka.network/default: "true"

@@ -1,0 +1,41 @@
+apiVersion: milvus.io/v1beta1
+kind: Milvus
+metadata:
+  name: milvus-db
+  namespace: gpt
+  labels:
+    app: milvus
+spec:
+  components:
+    standalone:
+      replicas: 1
+      serviceType: LoadBalancer
+  dependencies:
+    etcd:
+      inCluster:
+        values:
+          mode: standalone
+          replicaCount: 1
+          persistence:
+            size: 10Gi
+            subPath: '/etcd'
+        pvcDeletion: false
+    storage:
+      inCluster:
+        values:
+          mode: standalone
+          resources:
+            requests:
+              memory: 1024Mi
+          persistence:
+            size: 10Gi
+            subPath: '/minio'
+        pvcDeletion: false
+  config:
+    log:
+      level: warn
+      file:
+        maxSize: 512
+        rootPath: /var/log/milvus
+    localStorage:
+      path: /var/lib/milvus/db
